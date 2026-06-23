@@ -54,16 +54,17 @@ pi install git:github.com/Vistyy/pi-lavish@v0.2.1
 pi-lavish/
   package.json
   extensions/
-    index.ts
-    runner.ts
-    schemas.ts
-    truncate.ts
-    sessions.ts
-    ui.ts
-    tools/
-      end.ts
-      reference.ts
-      review.ts
+    pi-lavish/
+      index.ts
+      runner.ts
+      schemas.ts
+      truncate.ts
+      sessions.ts
+      ui.ts
+      tools/
+        end.ts
+        reference.ts
+        review.ts
   skills/
     lavish/
       SKILL.md
