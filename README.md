@@ -6,7 +6,9 @@ It bundles a Pi extension and a Lavish skill.
 
 ## What it provides
 
-- `lavish_review` tool for the agent.
+- `lavish_review` tool for opening a review session, showing the URL, and polling for feedback.
+- `lavish_reference` tool for Lavish design guidance and playbooks.
+- `lavish_end` tool for ending a review session.
 - `/skill:lavish` guidance for the model.
 - A Pi status item while Lavish is active.
 - A Pi widget that keeps the Lavish URL visible while the tool waits for browser feedback.
@@ -14,9 +16,19 @@ It bundles a Pi extension and a Lavish skill.
 
 ## Requirements
 
-The `lavish` command must be available on `PATH`.
+`pnpm` must be available on `PATH`.
 
-On the devbox, this should be the local wrapper that binds to localhost and uses the expected Lavish AXI setup.
+The extension invokes `pnpm dlx lavish-axi` internally with safe runtime defaults:
+
+- `LAVISH_AXI_HOST=127.0.0.1`
+- `LAVISH_AXI_PORT=4387`
+- `LAVISH_AXI_STATE_DIR=$HOME/.lavish-axi`
+- `LAVISH_AXI_NO_OPEN=1`
+- `LAVISH_AXI_TELEMETRY=off`
+
+If `LAVISH_AXI_LINK_HOST` is unset, the extension tries to discover a Tailscale DNS name with `tailscale status --json`.
+If Tailscale is unavailable, it leaves the link host unset.
+Tailscale is optional.
 
 ## Install locally
 
@@ -30,6 +42,12 @@ For one-off testing:
 pi -e /home/syzom/projects/pi-extensions/pi-lavish
 ```
 
+## Install from GitHub
+
+```bash
+pi install git:github.com/Vistyy/pi-lavish@v0.2.0
+```
+
 ## Package layout
 
 ```text
@@ -37,6 +55,14 @@ pi-lavish/
   package.json
   extensions/
     index.ts
+    runner.ts
+    schemas.ts
+    truncate.ts
+    ui.ts
+    tools/
+      end.ts
+      reference.ts
+      review.ts
   skills/
     lavish/
       SKILL.md
@@ -44,7 +70,7 @@ pi-lavish/
 
 The extension owns runtime behavior.
 
-The skill only tells the model when and how to use the tool.
+The skill tells the model when and how to use the tools.
 
 ## Tool workflow
 
@@ -54,7 +80,7 @@ First call:
 lavish_review(file: "path/to/file")
 ```
 
-The tool runs `lavish <file>`, extracts the URL, displays it in Pi, then runs `lavish poll <file>`.
+The tool runs Lavish AXI internally, extracts the URL, displays it in Pi, then polls for feedback.
 
 Follow-up call:
 
@@ -62,15 +88,21 @@ Follow-up call:
 lavish_review(file: "path/to/file", agentReply: "Reply to the browser reviewer")
 ```
 
-The tool runs `lavish poll <file> --agent-reply <reply>` and waits for the next feedback.
+The tool sends the reply and waits for the next feedback.
+
+End the session:
+
+```text
+lavish_end(file: "path/to/file")
+```
 
 ## Development
 
 Install dependencies if you want local type checking:
 
 ```bash
-npm install
-npm run typecheck
+pnpm install
+pnpm run typecheck
 ```
 
 Pi loads TypeScript extensions directly, so a build step is not required.
