@@ -5,10 +5,6 @@ import { registerReviewTool } from "./tools/review.js";
 import { clearLavishUi } from "./ui.js";
 
 export default function lavishExtension(pi: ExtensionAPI) {
-	pi.on("session_start", async () => {
-		// UI is populated only while a Lavish tool call is active.
-	});
-
 	pi.on("session_shutdown", async (_event, ctx) => {
 		clearLavishUi(ctx);
 	});

@@ -3,8 +3,9 @@ import { Text } from "@earendil-works/pi-tui";
 import { relative, resolve } from "node:path";
 import { commandForDisplay, combinedOutput, runLavishAxi } from "../runner.js";
 import { LavishReviewParams, REVIEW_TOOL_NAME, type LavishReviewDetails } from "../schemas.js";
+import { getReviewUrl, rememberReviewUrl, forgetReviewUrl } from "../sessions.js";
 import { truncateFeedback } from "../truncate.js";
-import { buildReviewToolText, setLavishUi } from "../ui.js";
+import { buildReviewToolText, clearLavishUi, setLavishUi } from "../ui.js";
 
 const URL_PATTERN = /https?:\/\/[^\s)"'<>]+/g;
 
@@ -14,14 +15,37 @@ function cleanPath(input: string): string {
 
 function displayPath(cwd: string, absolutePath: string): string {
 	const rel = relative(cwd, absolutePath);
-	if (!rel || rel.startsWith("..")) return absolutePath;
+	if (!rel || rel === ".." || rel.startsWith("../")) return absolutePath;
 	return rel;
 }
 
 function extractUrl(output: string): string | undefined {
-	const matches = output.match(URL_PATTERN);
-	const url = matches?.at(-1);
+	const matches = output.match(URL_PATTERN) ?? [];
+	const preferred = matches.find((candidate) => candidate.includes("127.0.0.1") || candidate.includes("localhost"));
+	const url = preferred ?? matches.at(-1);
 	return url?.replace(/[.,;:]+$/, "");
+}
+
+function hasEnded(output: string): boolean {
+	return /^\s*status:\s*ended\s*$/m.test(output);
+}
+
+function sanitizePollOutput(output: string): string {
+	const lines = output.split(/\r?\n/);
+	const kept: string[] = [];
+
+	for (const line of lines) {
+		const trimmed = line.trimStart();
+		if (trimmed.startsWith("[lavish-axi] Long-polling")) continue;
+		if (trimmed.startsWith("next_step:")) {
+			kept.push('next_step: "Use Pi Lavish tools: call lavish_review with agentReply to continue, or call lavish_end when finished."');
+			continue;
+		}
+		if (trimmed.includes("lavish-axi poll")) continue;
+		kept.push(line);
+	}
+
+	return kept.join("\n").trim();
 }
 
 export function registerReviewTool(pi: ExtensionAPI): void {
@@ -45,57 +69,75 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 			const absoluteFile = resolve(ctx.cwd, cleanedPath);
 			const file = displayPath(ctx.cwd, absoluteFile);
 			const agentReply = params.agentReply?.trim();
-			let url: string | undefined;
+			let url = agentReply ? getReviewUrl(absoluteFile) : undefined;
 
-			if (!agentReply) {
-				const opening: LavishReviewDetails = { state: "opening", file };
-				setLavishUi(ctx, opening);
-				onUpdate?.({ content: [{ type: "text", text: buildReviewToolText(opening) }], details: opening });
+			try {
+				if (!agentReply) {
+					forgetReviewUrl(absoluteFile);
+					const opening: LavishReviewDetails = { state: "opening", file, url };
+					setLavishUi(ctx, opening);
+					onUpdate?.({ content: [{ type: "text", text: buildReviewToolText(opening) }], details: opening });
 
-				const openResult = await runLavishAxi([absoluteFile], signal);
-				const openOutput = combinedOutput(openResult);
-				if (openResult.code !== 0) {
-					throw new Error(`${commandForDisplay([absoluteFile])} failed with code ${openResult.code}.\n${openOutput}`);
+					const openResult = await runLavishAxi([absoluteFile], signal);
+					const openOutput = combinedOutput(openResult);
+					if (openResult.code !== 0) {
+						throw new Error(`${commandForDisplay([absoluteFile])} failed with code ${openResult.code}.\n${openOutput}`);
+					}
+
+					url = extractUrl(openResult.stdout) ?? extractUrl(openOutput);
+					if (url) rememberReviewUrl(absoluteFile, url);
 				}
-				url = extractUrl(openOutput);
+
+				const waiting: LavishReviewDetails = {
+					state: "waiting",
+					file,
+					url,
+					agentReplySent: Boolean(agentReply),
+				};
+				setLavishUi(ctx, waiting);
+				onUpdate?.({ content: [{ type: "text", text: buildReviewToolText(waiting) }], details: waiting });
+
+				const pollArgs = ["poll", absoluteFile];
+				if (agentReply) pollArgs.push("--agent-reply", agentReply);
+
+				const pollResult = await runLavishAxi(pollArgs, signal);
+				const pollOutput = combinedOutput(pollResult);
+				if (pollResult.code !== 0) {
+					throw new Error(`${commandForDisplay(pollArgs)} failed with code ${pollResult.code}.\n${pollOutput}`);
+				}
+
+				const ended = hasEnded(pollOutput);
+				const rawFeedback = sanitizePollOutput(pollOutput) || "Lavish poll completed without textual feedback.";
+				const feedback = await truncateFeedback(rawFeedback);
+				const finalDetails: LavishReviewDetails = {
+					state: ended ? "ended" : "feedback",
+					file,
+					url,
+					agentReplySent: Boolean(agentReply),
+					feedback: feedback.content,
+					fullFeedbackPath: feedback.fullFeedbackPath,
+					truncated: feedback.truncated,
+				};
+
+				if (ended) {
+					forgetReviewUrl(absoluteFile);
+					clearLavishUi(ctx);
+				} else {
+					setLavishUi(ctx, finalDetails);
+				}
+
+				return {
+					content: [{ type: "text", text: feedback.content }],
+					details: finalDetails,
+				};
+			} catch (error) {
+				if (signal?.aborted) {
+					clearLavishUi(ctx);
+				} else {
+					setLavishUi(ctx, { state: "error", file, url });
+				}
+				throw error;
 			}
-
-			const waiting: LavishReviewDetails = {
-				state: "waiting",
-				file,
-				url,
-				agentReplySent: Boolean(agentReply),
-			};
-			setLavishUi(ctx, waiting);
-			onUpdate?.({ content: [{ type: "text", text: buildReviewToolText(waiting) }], details: waiting });
-
-			const pollArgs = ["poll", absoluteFile];
-			if (agentReply) pollArgs.push("--agent-reply", agentReply);
-
-			const pollResult = await runLavishAxi(pollArgs, signal);
-			const pollOutput = combinedOutput(pollResult);
-			if (pollResult.code !== 0) {
-				throw new Error(`${commandForDisplay(pollArgs)} failed with code ${pollResult.code}.\n${pollOutput}`);
-			}
-
-			const rawFeedback = pollOutput || "Lavish poll completed without textual feedback.";
-			const feedback = await truncateFeedback(rawFeedback);
-			const finalDetails: LavishReviewDetails = {
-				state: "feedback",
-				file,
-				url,
-				agentReplySent: Boolean(agentReply),
-				feedback: feedback.content,
-				fullFeedbackPath: feedback.fullFeedbackPath,
-				truncated: feedback.truncated,
-			};
-
-			setLavishUi(ctx, finalDetails);
-
-			return {
-				content: [{ type: "text", text: feedback.content }],
-				details: finalDetails,
-			};
 		},
 
 		renderCall(args, theme) {
@@ -114,7 +156,7 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 
 			if (isPartial) {
 				const lines = [
-					theme.fg("warning", `Lavish ${details.state}`),
+					theme.fg(details.state === "error" ? "error" : "warning", `Lavish ${details.state}`),
 					theme.fg("muted", details.file),
 					details.url ? theme.fg("accent", details.url) : undefined,
 					details.state === "waiting" ? theme.fg("dim", "Waiting for browser feedback...") : undefined,
@@ -122,7 +164,8 @@ export function registerReviewTool(pi: ExtensionAPI): void {
 				return new Text(lines.join("\n"), 0, 0);
 			}
 
-			const lines = [theme.fg("success", "Lavish feedback received"), theme.fg("muted", details.file)];
+			const title = details.state === "ended" ? "Lavish session ended" : "Lavish feedback received";
+			const lines = [theme.fg(details.state === "ended" ? "muted" : "success", title), theme.fg("muted", details.file)];
 			if (details.url) lines.push(theme.fg("accent", details.url));
 			if (details.fullFeedbackPath) lines.push(theme.fg("dim", `Full feedback: ${details.fullFeedbackPath}`));
 			if (expanded && details.feedback) lines.push("", details.feedback);

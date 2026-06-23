@@ -8,12 +8,23 @@ export interface LavishCommandResult {
 	code: number;
 }
 
+const TAILSCALE_TIMEOUT_MS = 1500;
+const TAILSCALE_FAILURE_TTL_MS = 60_000;
+let tailscaleLinkHostPromise: Promise<string | undefined> | undefined;
+let tailscaleLinkHostRetryAt = 0;
+
 function defaultEnv(name: string, value: string): string {
 	const current = process.env[name];
 	return current && current.length > 0 ? current : value;
 }
 
-function runCommand(command: string, args: string[], env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<LavishCommandResult> {
+function runCommand(
+	command: string,
+	args: string[],
+	env: NodeJS.ProcessEnv,
+	signal?: AbortSignal,
+	killGraceMs = 5000,
+): Promise<LavishCommandResult> {
 	if (signal?.aborted) {
 		return Promise.resolve({ stdout: "", stderr: "Command cancelled before start.", code: 130 });
 	}
@@ -32,10 +43,14 @@ function runCommand(command: string, args: string[], env: NodeJS.ProcessEnv, sig
 
 		const abort = () => {
 			if (exited) return;
+			if (killGraceMs <= 0) {
+				child.kill("SIGKILL");
+				return;
+			}
 			child.kill("SIGTERM");
 			killTimer = setTimeout(() => {
 				if (!exited) child.kill("SIGKILL");
-			}, 5000);
+			}, killGraceMs);
 		};
 
 		const cleanup = () => {
@@ -76,9 +91,14 @@ function runCommand(command: string, args: string[], env: NodeJS.ProcessEnv, sig
 	});
 }
 
-async function discoverTailscaleLinkHost(signal?: AbortSignal): Promise<string | undefined> {
+async function discoverTailscaleLinkHost(parentSignal?: AbortSignal): Promise<string | undefined> {
+	const controller = new AbortController();
+	const abort = () => controller.abort();
+	const timer = setTimeout(abort, TAILSCALE_TIMEOUT_MS);
+	parentSignal?.addEventListener("abort", abort, { once: true });
+
 	try {
-		const result = await runCommand("tailscale", ["status", "--json"], process.env, signal);
+		const result = await runCommand("tailscale", ["status", "--json"], process.env, controller.signal, 0);
 		if (result.code !== 0) return undefined;
 
 		const parsed = JSON.parse(result.stdout) as { Self?: { DNSName?: unknown } };
@@ -89,12 +109,34 @@ async function discoverTailscaleLinkHost(signal?: AbortSignal): Promise<string |
 		return cleaned || undefined;
 	} catch {
 		return undefined;
+	} finally {
+		clearTimeout(timer);
+		parentSignal?.removeEventListener("abort", abort);
 	}
 }
 
-async function buildLavishEnv(signal?: AbortSignal): Promise<NodeJS.ProcessEnv> {
+async function getTailscaleLinkHost(signal?: AbortSignal): Promise<string | undefined> {
+	if (Date.now() < tailscaleLinkHostRetryAt) return undefined;
+
+	tailscaleLinkHostPromise ??= discoverTailscaleLinkHost(signal);
+	const host = await tailscaleLinkHostPromise;
+	if (!host) {
+		tailscaleLinkHostPromise = undefined;
+		tailscaleLinkHostRetryAt = Date.now() + TAILSCALE_FAILURE_TTL_MS;
+	} else {
+		tailscaleLinkHostRetryAt = 0;
+	}
+	return host;
+}
+
+function shouldDiscoverLinkHost(args: string[]): boolean {
+	return args[0] !== "design" && args[0] !== "playbook";
+}
+
+async function buildLavishEnv(args: string[], signal?: AbortSignal): Promise<NodeJS.ProcessEnv> {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
+		COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
 		LAVISH_AXI_HOST: defaultEnv("LAVISH_AXI_HOST", "127.0.0.1"),
 		LAVISH_AXI_PORT: defaultEnv("LAVISH_AXI_PORT", "4387"),
 		LAVISH_AXI_STATE_DIR: defaultEnv("LAVISH_AXI_STATE_DIR", join(homedir(), ".lavish-axi")),
@@ -102,8 +144,10 @@ async function buildLavishEnv(signal?: AbortSignal): Promise<NodeJS.ProcessEnv> 
 		LAVISH_AXI_TELEMETRY: defaultEnv("LAVISH_AXI_TELEMETRY", "off"),
 	};
 
+	delete env.LAVISH_AXI_LINK_HOST;
+
 	const explicitLinkHost = process.env.LAVISH_AXI_LINK_HOST?.trim();
-	const discoveredLinkHost = explicitLinkHost || (await discoverTailscaleLinkHost(signal));
+	const discoveredLinkHost = explicitLinkHost || (shouldDiscoverLinkHost(args) ? await getTailscaleLinkHost(signal) : undefined);
 	if (discoveredLinkHost) {
 		env.LAVISH_AXI_LINK_HOST = discoveredLinkHost;
 	}
@@ -112,9 +156,9 @@ async function buildLavishEnv(signal?: AbortSignal): Promise<NodeJS.ProcessEnv> 
 }
 
 export async function runLavishAxi(args: string[], signal?: AbortSignal): Promise<LavishCommandResult> {
-	const env = await buildLavishEnv(signal);
+	const env = await buildLavishEnv(args, signal);
 	try {
-		return await runCommand("pnpm", ["dlx", "lavish-axi", ...args], env, signal);
+		return await runCommand("pnpm", ["--silent", "dlx", "lavish-axi", ...args], env, signal);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return {
@@ -126,7 +170,7 @@ export async function runLavishAxi(args: string[], signal?: AbortSignal): Promis
 }
 
 export function commandForDisplay(args: string[]): string {
-	return ["pnpm", "dlx", "lavish-axi", ...args]
+	return ["pnpm", "--silent", "dlx", "lavish-axi", ...args]
 		.map((arg) => (arg.includes(" ") ? JSON.stringify(arg) : arg))
 		.join(" ");
 }

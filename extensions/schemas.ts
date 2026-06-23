@@ -9,7 +9,7 @@ export const UI_KEY = "pi-lavish";
 export const PLAYBOOK_IDS = ["diagram", "table", "comparison", "plan", "code", "input", "slides"] as const;
 
 export interface LavishReviewDetails {
-	state: "opening" | "waiting" | "feedback" | "error";
+	state: "opening" | "waiting" | "feedback" | "ended" | "error";
 	file: string;
 	url?: string;
 	agentReplySent?: boolean;

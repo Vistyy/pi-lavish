@@ -3,7 +3,8 @@ import { Text } from "@earendil-works/pi-tui";
 import { relative, resolve } from "node:path";
 import { commandForDisplay, combinedOutput, runLavishAxi } from "../runner.js";
 import { END_TOOL_NAME, LavishEndParams, type LavishEndDetails } from "../schemas.js";
-import { clearLavishUi } from "../ui.js";
+import { forgetReviewUrl } from "../sessions.js";
+import { clearLavishUi, setLavishUi } from "../ui.js";
 
 function cleanPath(input: string): string {
 	return input.trim().replace(/^@+/, "");
@@ -11,7 +12,7 @@ function cleanPath(input: string): string {
 
 function displayPath(cwd: string, absolutePath: string): string {
 	const rel = relative(cwd, absolutePath);
-	if (!rel || rel.startsWith("..")) return absolutePath;
+	if (!rel || rel === ".." || rel.startsWith("../")) return absolutePath;
 	return rel;
 }
 
@@ -30,20 +31,31 @@ export function registerEndTool(pi: ExtensionAPI): void {
 
 			const absoluteFile = resolve(ctx.cwd, cleanedPath);
 			const file = displayPath(ctx.cwd, absoluteFile);
-			const result = await runLavishAxi(["end", absoluteFile], signal);
-			const output = combinedOutput(result);
-			if (result.code !== 0) {
-				throw new Error(`${commandForDisplay(["end", absoluteFile])} failed with code ${result.code}.\n${output}`);
+
+			try {
+				const result = await runLavishAxi(["end", absoluteFile], signal);
+				const output = combinedOutput(result);
+				if (result.code !== 0) {
+					throw new Error(`${commandForDisplay(["end", absoluteFile])} failed with code ${result.code}.\n${output}`);
+				}
+
+				forgetReviewUrl(absoluteFile);
+				clearLavishUi(ctx);
+				const text = output || `Ended Lavish session for ${file}.`;
+				const details: LavishEndDetails = { file, output: text };
+
+				return {
+					content: [{ type: "text", text }],
+					details,
+				};
+			} catch (error) {
+				if (signal?.aborted) {
+					clearLavishUi(ctx);
+				} else {
+					setLavishUi(ctx, { state: "error", file });
+				}
+				throw error;
 			}
-
-			clearLavishUi(ctx);
-			const text = output || `Ended Lavish session for ${file}.`;
-			const details: LavishEndDetails = { file, output: text };
-
-			return {
-				content: [{ type: "text", text }],
-				details,
-			};
 		},
 
 		renderCall(args, theme) {

@@ -45,7 +45,7 @@ pi -e /home/syzom/projects/pi-extensions/pi-lavish
 ## Install from GitHub
 
 ```bash
-pi install git:github.com/Vistyy/pi-lavish@v0.2.0
+pi install git:github.com/Vistyy/pi-lavish@v0.2.1
 ```
 
 ## Package layout
@@ -58,6 +58,7 @@ pi-lavish/
     runner.ts
     schemas.ts
     truncate.ts
+    sessions.ts
     ui.ts
     tools/
       end.ts
