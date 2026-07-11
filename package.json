@@ -1,6 +1,6 @@
 {
   "name": "pi-lavish",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Pi package for Lavish browser review sessions.",
   "type": "module",
   "private": true,

@@ -49,7 +49,7 @@ pi -e /home/syzom/projects/pi-extensions/pi-lavish
 ## Install from GitHub
 
 ```bash
-pi install git:github.com/Vistyy/pi-lavish@v0.3.0
+pi install git:github.com/Vistyy/pi-lavish@v0.3.1
 ```
 
 ## Package layout
