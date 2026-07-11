@@ -2,6 +2,7 @@ import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readLavishField } from "./protocol.js";
 
 async function writeFullOutput(output: string): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), "pi-lavish-"));
@@ -46,8 +47,14 @@ export async function truncateFeedback(feedback: string): Promise<{
 	truncated: boolean;
 }> {
 	const output = await truncateOutput(feedback, "Lavish feedback");
+	const nextStep = output.truncated ? readLavishField(feedback, "next_step") : undefined;
+	const serializedNextStep = nextStep ? `next_step: ${JSON.stringify(nextStep)}` : undefined;
+	const content =
+		serializedNextStep && !output.content.includes(serializedNextStep)
+			? `${output.content}\n\n[Preserved Lavish next step]\n${serializedNextStep}`
+			: output.content;
 	return {
-		content: output.content,
+		content,
 		fullFeedbackPath: output.fullOutputPath,
 		truncated: output.truncated,
 	};

@@ -1,10 +1,13 @@
 {
   "name": "pi-lavish",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Pi package for Lavish browser review sessions.",
   "type": "module",
   "private": true,
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "keywords": [
     "pi-package",
     "pi-extension",
@@ -19,7 +22,9 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm run typecheck && pnpm test"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
@@ -32,7 +37,11 @@
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "@types/node": "^24.0.0",
+    "tsx": "4.23.0",
     "typebox": "*",
     "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "lavish-axi": "0.1.40"
   }
 }

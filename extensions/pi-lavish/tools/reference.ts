@@ -1,10 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { commandForDisplay, combinedOutput, runLavishAxi } from "../runner.js";
+import { defaultLavishRunner, runCheckedLavishCommand, type LavishRunner } from "../runner.js";
 import { LavishReferenceParams, REFERENCE_TOOL_NAME, type LavishReferenceDetails } from "../schemas.js";
 import { truncateOutput } from "../truncate.js";
 
-export function registerReferenceTool(pi: ExtensionAPI): void {
+export function registerReferenceTool(pi: ExtensionAPI, runner: LavishRunner = defaultLavishRunner): void {
 	pi.registerTool({
 		name: REFERENCE_TOOL_NAME,
 		label: "Lavish Reference",
@@ -21,12 +21,9 @@ export function registerReferenceTool(pi: ExtensionAPI): void {
 				throw new Error("lavish_reference requires playbookId when action is playbook.");
 			}
 
-			const result = await runLavishAxi(args, signal);
-			const output = combinedOutput(result);
-			if (result.code !== 0) {
-				throw new Error(`${commandForDisplay(args)} failed with code ${result.code}.\n${output}`);
-			}
+			const result = await runCheckedLavishCommand(runner, args, signal);
 
+			const output = result.stdout.trim();
 			const truncated = await truncateOutput(output || "Lavish reference returned no output.", "Lavish reference");
 			const details: LavishReferenceDetails = {
 				action: params.action,

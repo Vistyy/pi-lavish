@@ -1,0 +1,8 @@
+session:
+  file: /tmp/lavish-fixture/review.html
+  status: feedback
+dom_snapshot: ""
+prompts: []
+layout_warnings[1]{selector,kind,overflowPx,viewportWidth,severity,persistent}:
+  main > h1,clipped-text,8,1341,error,false
+next_step: "1 layout warning detected - fix horizontal overflow or clipped text in /tmp/lavish-fixture/review.html, then re-check in the browser before involving the human. Lavish live-reloads the artifact automatically after you save, so you do not need to re-run `lavish-axi /tmp/lavish-fixture/review.html` for this."

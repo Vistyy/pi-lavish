@@ -33,12 +33,16 @@ Use the Pi Lavish tools.
 Do not use raw shell Lavish commands when the tools are available.
 
 1. Create the HTML artifact in a unique path, usually `.lavish/reviews/<task-id>.html` in the working directory.
-2. Call `lavish_review(file: "<html-file>")`.
+2. Call `lavish_review(file: "<html-file>", initialReply: "<one-line summary of what you built and what to review first>")`.
 3. Wait for the tool to return feedback, an end signal, or browser-reported `layout_warnings`.
-4. If the tool returns `layout_warnings`, fix overflow, clipped text, or overlapping unreadable content and re-check before involving the human.
+4. Follow the returned `next_step` for `layout_warnings`.
+Fix and re-check fresh error-severity findings before involving the human.
+Proceed with a note instead of looping when every current warning is persistent or low-severity.
 5. Apply human feedback, then call `lavish_review(file: "<html-file>", agentReply: "<message>")` to reply in the browser and wait for the next response.
 6. Repeat until the browser reviewer is satisfied or the user asks you to stop.
 7. Call `lavish_end(file: "<html-file>")` when the review is finished.
+If the user ends the session in the browser, stop polling and deliver remaining updates in Pi.
+Use `reopen: true` only when the user asks for further visual review or important new content genuinely needs their attention.
 
 Do not final-answer while Lavish is waiting.
 Do not answer the user with only the session URL and then stop.
@@ -52,6 +56,9 @@ The active `lavish_review` tool call is the bridge between the browser chat and 
 - Prevent horizontal overflow at every nesting level.
 - Nested grid and flex children also need `minmax(0, 1fr)` tracks and `min-width: 0`, especially when badges, labels, or status text use wide pixel or monospace fonts.
 - Wrap, truncate, or contain long unbreakable text deliberately.
+- When the artifact would describe existing UI or current visual state, show it instead.
+Capture screenshots of the real pages read-only and embed them.
+Use prose for rationale, tradeoffs, and details that cannot be shown.
 
 ## Playbooks
 
@@ -76,9 +83,21 @@ Open the diagram playbook and use Mermaid unless SVG is needed for richly annota
 - Lavish serves the HTML file through a local server managed by the Pi Lavish tools.
 - If your HTML needs to reference other filesystem assets such as images, CSS, fonts, and local scripts, copy them into the same directory as the HTML file, then reference them with relative paths from that directory.
 - Never prepend `/` to those asset paths because root paths will not work.
-- Fix `layout_warnings` before involving the human.
+- Follow each poll result's `next_step` for fresh, persistent, and low-severity `layout_warnings`.
 - Queued feedback is never lost.
 - Call `lavish_end(file: "<html-file>")` to end a session.
+- Use `lavish_export` when the user asks for a portable local copy.
+Inspect `unresolved_local_assets` and notices before presenting an export as complete.
+- Pi restores recorded Lavish session URLs after reload, but it does not start a hidden background poll.
+Call `lavish_review` to verify and resume the recorded session.
+- Rendered Mermaid diagrams in `.mermaid` containers become editable Excalidraw whiteboards in Lavish.
+Whiteboard feedback includes a bounded summary and may include local `scenePath` and `previewPath` files.
+Read the summary first and inspect those files only when needed.
+Apply edits to the artifact's authoritative Mermaid source.
+- `lavish_export` writes a portable HTML copy with local assets inlined.
+Remote CDN and font references remain network dependencies.
+- Browser publishing uses third-party `ht-ml.app` and is public by default.
+Do not publish without explicit user intent and clear disclosure.
 - Lavish does not auto-inject any design system.
 - Artifacts stay portable so they render identically when opened directly without Lavish running.
 - Before writing any HTML, decide the design direction in this strict priority order.

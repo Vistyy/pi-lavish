@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface LavishCommandResult {
 	stdout: string;
@@ -8,6 +9,14 @@ export interface LavishCommandResult {
 	code: number;
 }
 
+export interface LavishRunner {
+	run(args: string[], signal?: AbortSignal): Promise<LavishCommandResult>;
+	commandForDisplay(args: string[]): string;
+}
+
+const require = createRequire(import.meta.url);
+const LAVISH_PACKAGE_PATH = require.resolve("lavish-axi/package.json");
+const LAVISH_CLI_PATH = join(dirname(LAVISH_PACKAGE_PATH), "dist", "cli.mjs");
 const TAILSCALE_TIMEOUT_MS = 1500;
 const TAILSCALE_FAILURE_TTL_MS = 60_000;
 let tailscaleLinkHostPromise: Promise<string | undefined> | undefined;
@@ -142,6 +151,8 @@ async function buildLavishEnv(args: string[], signal?: AbortSignal): Promise<Nod
 		LAVISH_AXI_STATE_DIR: defaultEnv("LAVISH_AXI_STATE_DIR", join(homedir(), ".lavish-axi")),
 		LAVISH_AXI_NO_OPEN: defaultEnv("LAVISH_AXI_NO_OPEN", "1"),
 		LAVISH_AXI_TELEMETRY: defaultEnv("LAVISH_AXI_TELEMETRY", "off"),
+		NO_COLOR: "1",
+		FORCE_COLOR: "0",
 	};
 
 	delete env.LAVISH_AXI_LINK_HOST;
@@ -158,23 +169,47 @@ async function buildLavishEnv(args: string[], signal?: AbortSignal): Promise<Nod
 export async function runLavishAxi(args: string[], signal?: AbortSignal): Promise<LavishCommandResult> {
 	const env = await buildLavishEnv(args, signal);
 	try {
-		return await runCommand("pnpm", ["--silent", "dlx", "lavish-axi", ...args], env, signal);
+		return await runCommand(process.execPath, [LAVISH_CLI_PATH, ...args], env, signal);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		return {
 			stdout: "",
-			stderr: `Failed to start pnpm dlx lavish-axi. Ensure pnpm is installed and on PATH. ${message}`,
+			stderr: `Failed to start the bundled lavish-axi CLI with Node.js. ${message}`,
 			code: 127,
 		};
 	}
 }
 
 export function commandForDisplay(args: string[]): string {
-	return ["pnpm", "--silent", "dlx", "lavish-axi", ...args]
+	return [process.execPath, LAVISH_CLI_PATH, ...args]
 		.map((arg) => (arg.includes(" ") ? JSON.stringify(arg) : arg))
 		.join(" ");
 }
 
-export function combinedOutput(result: { stdout?: string; stderr?: string }): string {
-	return [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+export const defaultLavishRunner: LavishRunner = {
+	run: runLavishAxi,
+	commandForDisplay,
+};
+
+export function lavishCommandError(
+	runner: LavishRunner,
+	args: string[],
+	result: { stdout?: string; stderr?: string; code: number },
+): Error {
+	const sections = [
+		`${runner.commandForDisplay(args)} failed with code ${result.code}.`,
+		result.stdout ? `stdout:\n${result.stdout}` : undefined,
+		result.stderr ? `stderr:\n${result.stderr}` : undefined,
+	].filter((section): section is string => Boolean(section));
+	return new Error(sections.join("\n"));
+}
+
+export async function runCheckedLavishCommand(
+	runner: LavishRunner,
+	args: string[],
+	signal?: AbortSignal,
+): Promise<LavishCommandResult> {
+	const result = await runner.run(args, signal);
+	if (result.code !== 0) throw lavishCommandError(runner, args, result);
+	return result;
 }

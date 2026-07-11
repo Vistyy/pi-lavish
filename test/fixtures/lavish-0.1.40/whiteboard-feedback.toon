@@ -1,0 +1,25 @@
+session:
+  file: /tmp/lavish-fixture/review.html
+  status: feedback
+dom_snapshot: ""
+prompts[1]:
+  - uid: ""
+    prompt: Moved A
+    selector: ""
+    tag: whiteboard
+    text: ""
+    target:
+      type: excalidraw-scene
+      diagramIndex: 0
+      diagramId: flow
+      sourceHash: abc
+      scenePath: /tmp/lavish-fixture/scene.excalidraw
+      previewPath: /tmp/lavish-fixture/scene.png
+      imageFallback: false
+      stats:
+        added: 0
+        removed: 0
+        moved: 1
+        relabeled: 0
+        drawn: 0
+next_step: "Apply the requested changes to /tmp/lavish-fixture/review.html. This feedback includes whiteboard edits (tag \"whiteboard\"): update the Mermaid source and never write the .excalidraw scene back."

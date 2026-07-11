@@ -1,6 +1,23 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import type { LavishReviewDetails } from "./schemas.js";
 import { UI_KEY } from "./schemas.js";
+
+interface FileToolTheme {
+	fg(color: string, text: string): string;
+	bold(text: string): string;
+}
+
+export function renderFileToolCall(
+	theme: FileToolTheme,
+	toolName: string,
+	file: string | undefined,
+	suffix = "",
+): Text {
+	const label = theme.fg("toolTitle", theme.bold(`${toolName} `));
+	const renderedFile = file ? theme.fg("accent", file) : theme.fg("warning", "<missing file>");
+	return new Text(`${label}${renderedFile}${suffix}`, 0, 0);
+}
 
 export function buildReviewToolText(details: LavishReviewDetails): string {
 	const lines = [`Lavish ${details.state}: ${details.file}`];
